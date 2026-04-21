@@ -1,5 +1,5 @@
 name: 'Apply Kernel Branding'
-description: 'Apply Wild kernel branding to kernel version string'
+description: 'Apply Wild kernel branding to kernel version string + enforce KVM config'
 inputs:
   build_type:
     description: 'Build type (Normal, Bypass, MarionKernel, Hakan, etc.)'
@@ -11,15 +11,24 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Apply Kernel Name Branding
+    - name: Apply Kernel Name Branding + KVM Defconfig Patch
       shell: bash
       working-directory: ${{ github.workspace }}/kernel/common
       run: |
-        CONFIG_FRAGMENT="${GITHUB_WORKSPACE}/wild_gki.fragment"
-        touch "$CONFIG_FRAGMENT"
+        set -e
 
+        CONFIG_FRAGMENT="${GITHUB_WORKSPACE}/wild_gki.fragment"
         DEFCONFIG="${GITHUB_WORKSPACE}/kernel/common/arch/arm64/configs/gki_defconfig"
 
+        touch "$CONFIG_FRAGMENT"
+
+        echo "====================================="
+        echo " Branding + KVM Enforcement"
+        echo "====================================="
+
+        # =========================
+        # LOCALVERSION branding
+        # =========================
         if grep -q '^CONFIG_LOCALVERSION=' "$DEFCONFIG"; then
           LOCALVERSION_VALUE="$(grep -m1 '^CONFIG_LOCALVERSION=' "$DEFCONFIG" | sed -E 's/^CONFIG_LOCALVERSION="?([^"]*)"?$/\1/')"
           echo "CONFIG_LOCALVERSION=\"${LOCALVERSION_VALUE}-Wild\"" >> "$CONFIG_FRAGMENT"
@@ -27,15 +36,58 @@ runs:
           echo 'CONFIG_LOCALVERSION="-Wild"' >> "$CONFIG_FRAGMENT"
         fi
 
-        : > .scmversion
+        # =========================
+        # FORCE KVM IN DEFCONFIG
+        # =========================
+        echo "Forcing KVM configs into defconfig..."
 
-        echo "Getting last commit timestamp from kernel source..."
+        for opt in \
+          CONFIG_VIRTUALIZATION \
+          CONFIG_KVM \
+          CONFIG_KVM_ARM64 \
+          CONFIG_KVM_MMIO \
+          CONFIG_KVM_GENERIC_DIRTYLOG_READ_PROTECT \
+          CONFIG_HAVE_KVM_IRQCHIP \
+          CONFIG_KVM_COMPAT \
+          CONFIG_VHOST \
+          CONFIG_VHOST_NET \
+          CONFIG_VHOST_VSOCK \
+          CONFIG_VIRTIO \
+          CONFIG_VIRTIO_NET \
+          CONFIG_VIRTIO_BLK \
+          CONFIG_VIRTIO_PCI \
+          CONFIG_VIRTIO_BALLOON
+        do
+          if grep -q "^# $opt is not set" "$DEFCONFIG"; then
+            sed -i "s/^# $opt is not set/$opt=y/" "$DEFCONFIG"
+          elif grep -q "^$opt=" "$DEFCONFIG"; then
+            sed -i "s/^$opt=.*/$opt=y/" "$DEFCONFIG"
+          else
+            echo "$opt=y" >> "$DEFCONFIG"
+          fi
+        done
+
+        # =========================
+        # pKVM / Android tuning
+        # =========================
+        if [[ "${{ inputs.kernel_version }}" == "android12" || "${{ inputs.kernel_version }}" == "android13" ]]; then
+          echo "CONFIG_KVM_ARM_HOST=y" >> "$CONFIG_FRAGMENT"
+          echo "CONFIG_PROTECTED_KVM=n" >> "$CONFIG_FRAGMENT"
+        else
+          echo "CONFIG_KVM_ARM_HOST=y" >> "$CONFIG_FRAGMENT"
+          echo "CONFIG_PROTECTED_KVM=y" >> "$CONFIG_FRAGMENT"
+        fi
+
+        # =========================
+        # reproducible build
+        # =========================
+        : > .scmversion
 
         COMMIT_TIMESTAMP=$(git log -1 --format=%ct 2>/dev/null || echo "$(date +%s)")
         KERNEL_BUILD_DATE=$(date -u)
 
         export SOURCE_DATE_EPOCH=$COMMIT_TIMESTAMP
         echo "SOURCE_DATE_EPOCH=$COMMIT_TIMESTAMP" >> $GITHUB_ENV
-        
+
         export KBUILD_BUILD_TIMESTAMP="$KERNEL_BUILD_DATE"
         echo "KBUILD_BUILD_TIMESTAMP=$KERNEL_BUILD_DATE" >> $GITHUB_ENV
