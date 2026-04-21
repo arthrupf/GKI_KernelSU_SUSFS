@@ -1,22 +1,22 @@
-- name: Enable KVM (Universal / nVHE + pKVM Safe)
-  if: contains(inputs.feature_set, 'KVM')
-  run: |
-    set -e
+    - name: Enable KVM (Universal / nVHE + pKVM Safe)
+      if: contains(inputs.feature_set, 'KVM')
+      run: |
+        set -e
 
-    FRAGMENT="$GITHUB_WORKSPACE/wild_gki.fragment"
+        FRAGMENT="$GITHUB_WORKSPACE/wild_gki.fragment"
 
-    echo "====================================="
-    echo "   Enabling UNIVERSAL KVM Support"
-    echo "====================================="
+        echo "====================================="
+        echo "   Enabling UNIVERSAL KVM Support"
+        echo "====================================="
 
-    echo "Kernel: $KERNEL_VERSION"
-    echo "Android: $ANDROID_VERSION"
+        echo "Kernel: $KERNEL_VERSION"
+        echo "Android: $ANDROID_VERSION"
 
-    # =========================
-    # BASE KVM (SEMPRE)
-    # =========================
-    cat >> "$FRAGMENT" <<EOF
+        cat >> "$FRAGMENT" <<EOF
 
+# =========================
+# KVM CORE
+# =========================
 CONFIG_VIRTUALIZATION=y
 CONFIG_KVM=y
 CONFIG_KVM_ARM64=y
@@ -24,19 +24,18 @@ CONFIG_KVM_ARM64=y
 CONFIG_KVM_MMIO=y
 CONFIG_KVM_GENERIC_DIRTYLOG_READ_PROTECT=y
 
-# IRQ / core
 CONFIG_HAVE_KVM_IRQCHIP=y
 CONFIG_KVM_COMPAT=y
 
 # =========================
-# VHOST (performance)
+# VHOST
 # =========================
 CONFIG_VHOST=y
 CONFIG_VHOST_NET=y
 CONFIG_VHOST_VSOCK=y
 
 # =========================
-# VIRTIO (VM support)
+# VIRTIO
 # =========================
 CONFIG_VIRTIO=y
 CONFIG_VIRTIO_NET=y
@@ -46,40 +45,29 @@ CONFIG_VIRTIO_BALLOON=y
 
 EOF
 
-    # =========================
-    # SMART MODE
-    # =========================
-
-    if [[ "$ANDROID_VERSION" == "android12" || "$ANDROID_VERSION" == "android13" ]]; then
-      echo ">> Using nVHE (safe for older Android)"
-
-      cat >> "$FRAGMENT" <<EOF
+        if [[ "$ANDROID_VERSION" == "android12" || "$ANDROID_VERSION" == "android13" ]]; then
+          cat >> "$FRAGMENT" <<EOF
 
 CONFIG_KVM_ARM_HOST=y
 CONFIG_PROTECTED_KVM=n
 
 EOF
 
-    elif [[ "$ANDROID_VERSION" == "android14" || "$ANDROID_VERSION" == "android15" ]]; then
-      echo ">> Using HYBRID MODE (pKVM-aware, safer)"
+        elif [[ "$ANDROID_VERSION" == "android14" || "$ANDROID_VERSION" == "android15" ]]; then
+          cat >> "$FRAGMENT" <<EOF
 
-      cat >> "$FRAGMENT" <<EOF
-
-# Allow device to decide (prevents bootloop)
 CONFIG_KVM_ARM_HOST=y
 CONFIG_PROTECTED_KVM=y
 
 EOF
 
-    else
-      echo ">> Unknown Android version → fallback safe mode"
-
-      cat >> "$FRAGMENT" <<EOF
+        else
+          cat >> "$FRAGMENT" <<EOF
 
 CONFIG_KVM_ARM_HOST=y
 
 EOF
 
-    fi
+        fi
 
-    echo "KVM successfully configured."
+        echo "KVM successfully configured."
