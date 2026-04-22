@@ -39,64 +39,28 @@ jobs:
       - name: Setup Swap
         uses: thejerrybao/setup-swap-space@v1
         with:
-          swap-size-gb: 25
+          swap-size-gb: 8
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang lld llvm gcc-aarch64-linux-gnu git unzip curl
+          sudo apt-get install -y build-essential bc bison flex libssl-dev \
+            libncurses5-dev libncursesw5-dev git wget curl zip unzip python3 \
+            clang lld
 
-      - name: Export environment
+      - name: Merge defconfig + fragment
         run: |
-          echo "ARCH=arm64" >> $GITHUB_ENV
-          echo "SUBARCH=arm64" >> $GITHUB_ENV
-          echo "CC=clang" >> $GITHUB_ENV
-          echo "LD=ld.lld" >> $GITHUB_ENV
-          echo "AR=llvm-ar" >> $GITHUB_ENV
-          echo "NM=llvm-nm" >> $GITHUB_ENV
-          echo "OBJCOPY=llvm-objcopy" >> $GITHUB_ENV
-          echo "OBJDUMP=llvm-objdump" >> $GITHUB_ENV
-          echo "STRIP=llvm-strip" >> $GITHUB_ENV
-          echo "READELF=llvm-readelf" >> $GITHUB_ENV
-          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          mkdir -p arch/arm64/configs
+          cp wild_gki.fragment arch/arm64/configs/
+          ./scripts/kconfig/merge_config.sh arch/arm64/configs/gki_defconfig arch/arm64/configs/wild_gki.fragment
+          make ARCH=arm64 olddefconfig
 
-      - name: Clone Android 15 LTS Kernel
+      - name: Build kernel
         run: |
-          git clone https://android.googlesource.com/kernel/common -b android15-6.6-lts --depth 1 kernel
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC=clang -j$(nproc)
 
-      - name: Add fragment (KVM + Namespaces)
-        run: |
-         ./scripts/kconfig/merge_config.sh arch/arm64/configs/gki_defconfig arch/arm64/configs/wild_gki.fragment
-          cat <<EOF > wild_gki.fragment
-          CONFIG_KVM=y
-          CONFIG_KVM_ARM_HOST=y
-          CONFIG_USER_NS=y
-          CONFIG_PID_NS=y
-          # CONFIG_WERROR is not set
-          EOF
-
-      - name: Build Kernel
-        working-directory: kernel
-        run: |
-          set -ex
-          if [ -f "build/build.sh" ]; then
-            GKI_DEFCONFIG_FRAGMENT="$GITHUB_WORKSPACE/wild_gki.fragment" \
-            BUILD_CONFIG=common/build.config.gki.aarch64 \
-            build/build.sh
-          else
-            cp "$GITHUB_WORKSPACE/wild_gki.fragment" common/arch/arm64/configs/wild_gki.fragment
-            tools/bazel build --config=release --stamp \
-              --defconfig_fragment=//common:arch/arm64/configs/wild_gki.fragment \
-              //common:kernel_aarch64_dist || \
-              make ARCH=$ARCH CC=$CC LD=$LD KCFLAGS="-Wno-gcc-compat -Wno-error" -j$(nproc) Image.gz dtbs modules
-          fi
-
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-build
-          path: |
-            arch/arm64/boot/Image.gz
-            arch/arm64/boot/dts/*.dtb
-            modules
-            bazel-bin/common/kernel_aarch64/Image*
+          name: kernel-${{ github.event.inputs.kernel_version }}-${{ github.event.inputs.feature_set }}
+          path: arch/arm64/boot/Image.gz-dtb
