@@ -48,10 +48,13 @@ jobs:
             libncurses5-dev libncursesw5-dev git wget curl zip unzip python3 \
             clang lld
 
-      - name: Merge defconfig + fragment
+      - name: Prepare configs
         run: |
           mkdir -p arch/arm64/configs
           cp wild_gki.fragment arch/arm64/configs/
+
+      - name: Merge defconfig + fragment
+        run: |
           ./scripts/kconfig/merge_config.sh arch/arm64/configs/gki_defconfig arch/arm64/configs/wild_gki.fragment
           make ARCH=arm64 olddefconfig
 
