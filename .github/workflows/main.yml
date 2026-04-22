@@ -66,6 +66,7 @@ jobs:
 
       - name: Add fragment (KVM + Namespaces)
         run: |
+         ./scripts/kconfig/merge_config.sh arch/arm64/configs/gki_defconfig arch/arm64/configs/wild_gki.fragment
           cat <<EOF > wild_gki.fragment
           CONFIG_KVM=y
           CONFIG_KVM_ARM_HOST=y
